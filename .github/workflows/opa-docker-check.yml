@@ -1,0 +1,66 @@
+name: Dockerfile Security Check
+
+on: [push, pull_request]
+
+jobs:
+  opa-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install dockerfile-parse
+          sudo apt-get install -y jq
+
+      - name: Install OPA CLI
+        run: |
+          curl -L -o opa_bin https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa_bin
+          sudo mv opa_bin /usr/local/bin/opa
+
+      - name: Find and validate all Dockerfiles
+        run: |
+          # Find all Dockerfiles in the repository
+          dockerfiles=$(find . -name Dockerfile)
+          overall_result=0
+
+          for dockerfile in $dockerfiles; do
+            echo "🔍 Checking Dockerfile: $dockerfile"
+            
+            # Copy the Dockerfile to the root temporarily for parsing
+            cp "$dockerfile" ./Dockerfile
+            
+            # Parse Dockerfile to JSON
+            python3 parse-dockerfile.py > dockerfile.json
+            
+            # Evaluate OPA policy
+            violations=$(opa eval --input dockerfile.json --data opa/policy.rego "data.docker.security.deny" --format=json | jq -r '.result[0].expressions[0].value | keys_unsorted[]')
+            
+            # Check if there are any violations
+            if [ -n "$violations" ]; then
+              echo "❌ OPA policy violations found in $dockerfile:"
+              echo "$violations"
+              overall_result=1  # Mark overall as failed
+            else
+              echo "✅ No policy violations in $dockerfile"
+            fi
+            
+            # Clean up
+            rm -f ./Dockerfile dockerfile.json
+            echo ""
+          done
+          
+          # Exit with appropriate status
+          if [ $overall_result -ne 0 ]; then
+            echo "🚫 Some Dockerfiles failed policy checks"
+            exit 1
+          else
+            echo "✨ All Dockerfiles passed policy checks"
+          fi
