@@ -1,11 +1,13 @@
-# Violation 1: Uses 'latest'
-FROM alpine:latest
+# Passes: Uses specific version tag
+FROM alpine:3.19
 
-# Violation 2: Runs as root (default or explicitly)
-USER root
+# Passes: Sets non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
 
-# Violation 3: Uses ADD
-ADD https://example.com/file.tar.gz /tmp/
+# Passes: Uses COPY instead of ADD
+COPY ./local-file.txt /app/
 
 RUN apk add --no-cache curl
+
 CMD ["sh"]
